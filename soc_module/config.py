@@ -262,12 +262,14 @@ class MappingConfigManager:
 
             # Secondary token-based fallback matching
             if not best_match:
-                if "service_code" not in assigned_canonical and any(t in cleaned for t in ["servicecode", "serviceid", "itemcode", "itemno", "itemnum", "chargecode"]):
-                    best_match = "service_code"
-                elif "description" not in assigned_canonical and any(t in cleaned for t in ["servicename", "itemname", "description", "particular", "testname"]):
+                if "service_code" not in assigned_canonical and any(t in cleaned for t in ["servicecode", "serviceid", "itemcode", "chargecode", "testcode", "proc_code"]):
+                    if not any(ex in cleaned for ex in ["annexure", "batch", "notification", "version", "slno", "sno"]):
+                        best_match = "service_code"
+                elif "description" not in assigned_canonical and any(t in cleaned for t in ["servicename", "itemname", "description", "particular", "testname", "investigation"]):
                     best_match = "description"
-                elif "rate" not in assigned_canonical and any(t in cleaned for t in ["tariff", "rate", "amount", "price", "fee"]):
-                    best_match = "rate"
+                elif "rate" not in assigned_canonical and any(t in cleaned for t in ["tariff", "rate", "amount", "price", "fee", "mrp", "charge"]):
+                    if not any(ex in cleaned for ex in ["diff", "variance", "discount", "disc", "delta", "change", "tax", "gst"]):
+                        best_match = "rate"
                 elif "department" not in assigned_canonical and any(t in cleaned for t in ["dept", "specialty", "speciality"]):
                     best_match = "department"
                 elif "category" not in assigned_canonical and any(t in cleaned for t in ["category", "classification", "servicetype"]):

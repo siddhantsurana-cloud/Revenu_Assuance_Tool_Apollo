@@ -15022,11 +15022,11 @@ Claims & Billing Assurance Desk
         const headerRow = (rawRows[bestHeaderIdx] || []).map(c => String(c || '').trim());
         socDetectedColumns = headerRow.filter(h => h.length > 0);
 
-        // Map columns
-        const mapping = resolveColumnMapping(headerRow, templateName);
-        socActiveMappings = mapping;
-
         const dataRows = rawRows.slice(bestHeaderIdx + 1);
+
+        // Map columns using header names and sample row analysis
+        const mapping = resolveColumnMapping(headerRow, templateName, dataRows);
+        socActiveMappings = mapping;
         const validRecords = [];
         const invalidRecords = [];
         const warningRecords = [];
@@ -15278,7 +15278,7 @@ Claims & Billing Assurance Desk
         }
     }
 
-    function resolveColumnMapping(headers, templateName) {
+    function resolveColumnMapping(headers, templateName, sampleRows = []) {
         const mapping = {
             id: -1,
             name: -1,
@@ -15291,42 +15291,201 @@ Claims & Billing Assurance Desk
 
         const lowerHeaders = headers.map(h => String(h || '').toLowerCase().trim());
 
-        const idAliases = ['code', 'item_code', 'service_code', 'id', 'test_code', 'investigation_code', 'sl_no', 'sl no', 'item code'];
-        const nameAliases = ['service', 'service_name', 'service_description', 'description', 'investigation', 'test_name', 'procedure', 'item_name', 'service name'];
-        const deptAliases = ['dept', 'department', 'specialty', 'section', 'modality', 'department_name'];
-        const catAliases = ['category', 'group', 'class', 'head', 'sub_category', 'service_type'];
-        const stdRateAliases = ['rate', 'standard_rate', 'amount', 'charge', 'mrp', 'price', 'tariff', 'standard rate'];
-        const opdRateAliases = ['opd', 'opd_rate', 'outpatient', 'opd rate'];
-        const ipdRateAliases = ['ipd', 'ipd_rate', 'inpatient', 'ipd rate', 'semi_private', 'private'];
+        const rateExclusions = ['diff', 'variance', 'discount', 'disc', 'delta', 'change', 'margin', '%', 'gst', 'tax', 'sno', 'sl_no', 'sl no', 'sr no', 'sr.', 'unit', 'qty', 'quantity', 'status'];
 
-        function findCol(aliases) {
-            for (let i = 0; i < lowerHeaders.length; i++) {
-                const h = lowerHeaders[i];
-                for (const a of aliases) {
-                    if (h === a || h.startsWith(a) || h.includes(a)) {
-                        return i;
-                    }
+        const primaryIdAliases = [
+            'service_code', 'service code', 'service_id', 'service id', 'item_code', 'item code', 
+            'apollo_code', 'apollo code', 'test_code', 'test code', 'procedure_code', 'procedure code',
+            'billing_code', 'billing code', 'cpt_code', 'investigation_code', 'code'
+        ];
+        const secondaryIdAliases = ['id', 'item_no', 'item no', 'sl_no', 'sl no', 's_no', 'sr_no'];
+
+        const nameAliases = [
+            'service_name', 'service name', 'service_description', 'service description', 
+            'item_name', 'item name', 'description', 'investigation', 'test_name', 'procedure', 
+            'service', 'particulars'
+        ];
+        const deptAliases = ['department_name', 'department', 'dept', 'specialty', 'speciality', 'section', 'modality', 'discipline'];
+        const catAliases = ['sub_category', 'category', 'group', 'service_type', 'class', 'head', 'classification'];
+        
+        const ratePriorityAliases = [
+            'credit_rate', 'credit rate', 'agreed_rate', 'agreed rate', 'approved_rate', 'approved rate', 
+            'revised_rate', 'revised rate', 'tariff_rate', 'tariff rate', 'standard_rate', 'standard rate', 
+            'rate_2025_26', 'rate_2026_27', 'rate_2024_25', 'final_tariff', 'final tariff',
+            'tariff', 'standard rate', 'mrp', 'rate', 'price', 'amount', 'charge'
+        ];
+        const opdRateAliases = ['opd_rate', 'opd rate', 'outpatient', 'opd'];
+        const ipdRateAliases = ['ipd_rate', 'ipd rate', 'inpatient', 'ipd', 'semi_private', 'private'];
+
+        // Helper to score rate column candidates using actual data
+        function scoreRateCandidate(colIdx) {
+            if (colIdx < 0 || colIdx >= lowerHeaders.length) return -999;
+            const h = lowerHeaders[colIdx];
+            let score = 0;
+
+            // Penalty for negative indicators in header
+            for (const ex of rateExclusions) {
+                if (h.includes(ex)) {
+                    score -= 80;
                 }
             }
-            return -1;
+
+            // Bonus for positive rate indicator in header
+            for (let idx = 0; idx < ratePriorityAliases.length; idx++) {
+                const alias = ratePriorityAliases[idx];
+                if (h === alias) { score += (100 - idx); break; }
+                else if (h.includes(alias)) { score += (50 - idx); break; }
+            }
+
+            // Inspect sample rows to ensure real positive prices
+            if (sampleRows && sampleRows.length > 0) {
+                let positiveCount = 0;
+                let negativeCount = 0;
+                let zeroCount = 0;
+                let sampleSize = Math.min(sampleRows.length, 50);
+
+                for (let r = 0; r < sampleSize; r++) {
+                    const cell = sampleRows[r]?.[colIdx];
+                    const num = parseNumericRate(cell);
+                    if (num !== null) {
+                        if (num > 0) positiveCount++;
+                        else if (num < 0) negativeCount++;
+                        else zeroCount++;
+                    }
+                }
+
+                // If negative numbers detected (e.g. -24), heavy penalty!
+                if (negativeCount > 0) score -= (negativeCount * 50);
+                // Positive numbers rewarded
+                score += (positiveCount * 5);
+                // Excessive zeros penalized
+                if (positiveCount === 0 && zeroCount > 5) score -= 50;
+            }
+
+            return score;
         }
 
-        mapping.id = findCol(idAliases);
-        mapping.name = findCol(nameAliases);
-        mapping.department = findCol(deptAliases);
-        mapping.category = findCol(catAliases);
-        mapping.standard_rate = findCol(stdRateAliases);
-        mapping.opd_rate = findCol(opdRateAliases);
-        mapping.ipd_rate = findCol(ipdRateAliases);
+        // Helper to score code column candidates using actual data (variety / uniqueness)
+        function scoreCodeCandidate(colIdx) {
+            if (colIdx < 0 || colIdx >= lowerHeaders.length) return -999;
+            const h = lowerHeaders[colIdx];
+            let score = 0;
 
-        if (mapping.name === -1 && lowerHeaders.length > 1) {
-            mapping.name = 1;
+            for (let idx = 0; idx < primaryIdAliases.length; idx++) {
+                const alias = primaryIdAliases[idx];
+                if (h === alias) { score += (80 - idx); break; }
+                else if (h.includes(alias)) { score += (40 - idx); break; }
+            }
+
+            for (let idx = 0; idx < secondaryIdAliases.length; idx++) {
+                const alias = secondaryIdAliases[idx];
+                if (h === alias || h.includes(alias)) { score += 10; break; }
+            }
+
+            // Penalize headers indicating batch/annexure/constant
+            if (h.includes('annexure') || h.includes('notification') || h.includes('batch') || h.includes('version')) {
+                score -= 80;
+            }
+
+            // Inspect sample rows for distinct values
+            if (sampleRows && sampleRows.length > 0) {
+                const seenVals = new Set();
+                let sampleSize = Math.min(sampleRows.length, 50);
+                for (let r = 0; r < sampleSize; r++) {
+                    const val = cleanString(sampleRows[r]?.[colIdx]);
+                    if (val) seenVals.add(val.toLowerCase());
+                }
+                // If every row has the same value (like constant 'no06'), heavy penalty!
+                if (seenVals.size <= 1 && sampleSize > 3) {
+                    score -= 100;
+                } else if (seenVals.size > 5) {
+                    score += (seenVals.size * 3);
+                }
+            }
+
+            return score;
         }
-        if (mapping.id === -1 && lowerHeaders.length > 0 && mapping.name !== 0) {
-            mapping.id = 0;
+
+        // 1. Find Best Service Name Column
+        for (const alias of nameAliases) {
+            const found = lowerHeaders.findIndex(h => h === alias || (h.includes(alias) && !h.includes('code') && !h.includes('id')));
+            if (found !== -1) {
+                mapping.name = found;
+                break;
+            }
         }
+        if (mapping.name === -1) {
+            for (let i = 0; i < lowerHeaders.length; i++) {
+                if (lowerHeaders[i].includes('desc') || lowerHeaders[i].includes('service')) {
+                    mapping.name = i;
+                    break;
+                }
+            }
+        }
+
+        // 2. Find Best Code Column (Scoring across all candidate columns)
+        let bestCodeScore = -50;
+        let bestCodeCol = -1;
+        for (let i = 0; i < lowerHeaders.length; i++) {
+            if (i === mapping.name) continue;
+            const score = scoreCodeCandidate(i);
+            if (score > bestCodeScore) {
+                bestCodeScore = score;
+                bestCodeCol = i;
+            }
+        }
+        mapping.id = bestCodeCol;
+
+        // 3. Find Best Rate Column (Scoring across all candidate columns)
+        let bestRateScore = -50;
+        let bestRateCol = -1;
+        for (let i = 0; i < lowerHeaders.length; i++) {
+            if (i === mapping.name || i === mapping.id) continue;
+            const score = scoreRateCandidate(i);
+            if (score > bestRateScore) {
+                bestRateScore = score;
+                bestRateCol = i;
+            }
+        }
+        mapping.standard_rate = bestRateCol;
+
+        // 4. Find Department and Category
+        for (const alias of deptAliases) {
+            const found = lowerHeaders.findIndex(h => h === alias || h.includes(alias));
+            if (found !== -1 && found !== mapping.name && found !== mapping.id && found !== mapping.standard_rate) {
+                mapping.department = found;
+                break;
+            }
+        }
+        for (const alias of catAliases) {
+            const found = lowerHeaders.findIndex(h => h === alias || h.includes(alias));
+            if (found !== -1 && found !== mapping.name && found !== mapping.id && found !== mapping.standard_rate && found !== mapping.department) {
+                mapping.category = found;
+                break;
+            }
+        }
+
+        // 5. Find OPD / IPD if present
+        for (const alias of opdRateAliases) {
+            const found = lowerHeaders.findIndex(h => h === alias || h.includes(alias));
+            if (found !== -1 && found !== mapping.standard_rate) {
+                mapping.opd_rate = found;
+                break;
+            }
+        }
+        for (const alias of ipdRateAliases) {
+            const found = lowerHeaders.findIndex(h => h === alias || h.includes(alias));
+            if (found !== -1 && found !== mapping.standard_rate && found !== mapping.opd_rate) {
+                mapping.ipd_rate = found;
+                break;
+            }
+        }
+
+        // Fallbacks if nothing matched
+        if (mapping.name === -1 && lowerHeaders.length > 1) mapping.name = 1;
+        if (mapping.id === -1 && lowerHeaders.length > 0 && mapping.name !== 0) mapping.id = 0;
         if (mapping.standard_rate === -1) {
-            mapping.standard_rate = mapping.opd_rate !== -1 ? mapping.opd_rate : (mapping.ipd_rate !== -1 ? mapping.ipd_rate : lowerHeaders.length - 1);
+            mapping.standard_rate = lowerHeaders.length > 2 ? lowerHeaders.length - 1 : 0;
         }
 
         return mapping;
