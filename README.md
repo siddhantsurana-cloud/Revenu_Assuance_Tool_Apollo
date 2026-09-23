@@ -36,6 +36,10 @@ Open your browser and navigate to:
 - **Calculation Tier**: Deterministic browser-based calculation engine (`revenue_assurance_engine.js`) executing 4-decimal precision variance analysis.
 - **Data Tier**: Decoupled dual-storage model using browser IndexedDB for instant sub-millisecond lookups, synchronized with a local SQLite database (`revenue_audit.db`).
 - **Master Registries**: Active contract schemas mapped in `tariff_data.js`.
+- **Data Ingestion & Parsing Tier**: High-throughput Statement of Charges (SOC) and contract parsing engines (`soc_module/`) providing dual extraction:
+  1. *Excel Engine* (`soc_module/excel_parser.py`): Tabular normalization, code alignment, and rate extraction via `openpyxl`.
+  2. *PDF Engine* (`soc_module/pdf_parser.py`): Tabular PDF extraction and rate schedule reconstruction via `pdfplumber`.
+  3. *Unit Compilers*: Contract-specific builders (`compile_kolkata_tariffs.py`, `compile_hdfc_agreed_2026.py`, `compile_iocl_2021.py`).
 
 ---
 
