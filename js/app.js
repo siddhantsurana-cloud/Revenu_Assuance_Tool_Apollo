@@ -14915,14 +14915,31 @@ Claims & Billing Assurance Desk
             }
 
             // Fallback to client-side deterministic parsing if server not available or failed
-            if (!result || result.status !== 'success') {
+            if (!result || (result.status !== 'success' && result.status !== 'warning')) {
                 result = await runClientSideSOCParser(file, arrayBuffer, requestedSheet, templateName);
             }
 
-            if (result && result.status === 'success') {
+            if (result && (result.status === 'success' || result.status === 'warning')) {
+                // Ensure result.summary is always reliably populated
+                if (!result.summary) {
+                    result.summary = {
+                        total_extracted: result.metadata?.total_extracted || result.records?.length || 0,
+                        valid_records: result.valid_records?.length || result.validation?.valid_count || 0,
+                        invalid_records: result.invalid_records?.length || result.validation?.invalid_count || 0,
+                        warning_records: result.warning_records?.length || result.validation?.warning_count || 0
+                    };
+                }
+                if (!result.mapping && (result.column_mapping || result.metadata?.column_mapping)) {
+                    result.mapping = result.column_mapping || result.metadata?.column_mapping;
+                }
+                if (!result.raw_headers && (result.headers || result.metadata?.headers)) {
+                    result.raw_headers = result.headers || result.metadata?.headers;
+                }
+
                 socParsedResult = result;
                 displaySOCResults(result);
-                showToast(`Successfully parsed ${result.summary.total_extracted || 0} line items from ${file.name}`, 'success');
+                const count = result.summary?.total_extracted ?? result.metadata?.total_extracted ?? result.records?.length ?? 0;
+                showToast(`Successfully parsed ${count} line items from ${file.name}`, 'success');
             } else {
                 showToast(result?.message || 'Could not parse tabular data from document.', 'danger');
                 if (result?.is_scanned && warningBanner) {
@@ -15361,18 +15378,23 @@ Claims & Billing Assurance Desk
         const statWarnTag = document.getElementById('ingest-stat-warnings-tag');
         const statFields = document.getElementById('ingest-stat-fields');
 
-        const summary = result.summary || {};
-        const validCount = summary.valid_records || 0;
-        const invalidCount = summary.invalid_records || 0;
-        const warnCount = summary.warning_records || 0;
-        const totalCount = summary.total_extracted || 0;
+        const summary = result.summary || {
+            total_extracted: result.metadata?.total_extracted || result.records?.length || 0,
+            valid_records: result.valid_records?.length || result.validation?.valid_count || 0,
+            invalid_records: result.invalid_records?.length || result.validation?.invalid_count || 0,
+            warning_records: result.warning_records?.length || result.validation?.warning_count || 0
+        };
+        const validCount = summary.valid_records ?? result.valid_records?.length ?? 0;
+        const invalidCount = summary.invalid_records ?? result.invalid_records?.length ?? 0;
+        const warnCount = summary.warning_records ?? result.warning_records?.length ?? 0;
+        const totalCount = summary.total_extracted ?? result.records?.length ?? (validCount + invalidCount);
 
         if (statValid) statValid.textContent = validCount.toLocaleString('en-IN');
         if (statInvalid) statInvalid.textContent = invalidCount.toLocaleString('en-IN');
         if (statWarnTag) statWarnTag.textContent = `${warnCount} warnings`;
 
         if (statFields) {
-            const mappedKeys = Object.entries(result.mapping || {}).filter(([k, v]) => v !== -1).map(([k]) => k);
+            const mappedKeys = Object.entries(result.mapping || result.column_mapping || {}).filter(([k, v]) => v !== -1).map(([k]) => k);
             statFields.textContent = mappedKeys.length > 0 ? mappedKeys.join(', ') : 'Auto-detected';
         }
 
@@ -15587,9 +15609,9 @@ Claims & Billing Assurance Desk
             id: 'SOC_' + Date.now(),
             file_name: socActiveFile ? socActiveFile.name : targetName,
             target_tariff_name: targetName,
-            total_records: socParsedResult.summary.total_extracted,
+            total_records: socParsedResult.summary?.total_extracted ?? socParsedResult.records?.length ?? 0,
             valid_imported: validRecords.length,
-            invalid_skipped: socParsedResult.summary.invalid_records,
+            invalid_skipped: socParsedResult.summary?.invalid_records ?? 0,
             timestamp: new Date().toISOString(),
             user: window.currentUserRole || 'Administrator'
         };

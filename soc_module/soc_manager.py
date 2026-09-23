@@ -78,35 +78,96 @@ class SOCProcessingManager:
         # Step 4: Validate Data
         validation_report = self.validator.validate_batch(raw_records)
 
+        valid_records = validation_report.get("valid_records", [])
+        invalid_records = validation_report.get("invalid_records", [])
+        warnings_list = validation_report.get("warnings", [])
+
+        total_count = len(raw_records)
+
+        # Build lookup for invalid rows and warnings
+        invalid_map = {inv.get("record_index"): inv.get("reasons", []) for inv in invalid_records}
+        warn_map = {w.get("record_index"): w.get("warnings", []) for w in warnings_list}
+
+        enriched_records: List[Dict[str, Any]] = []
+        for idx, rec in enumerate(raw_records, start=1):
+            r_dict = dict(rec)
+            code = str(r_dict.get("service_code") or r_dict.get("id") or f"SRV_{idx}").strip()
+            desc = str(r_dict.get("description") or r_dict.get("name") or "Unnamed Service").strip()
+            rate = float(r_dict.get("rate") or r_dict.get("standard_rate") or 0.0)
+
+            # Assign unified canonical keys for frontend compatibility
+            r_dict["id"] = code
+            r_dict["service_code"] = code
+            r_dict["name"] = desc
+            r_dict["description"] = desc
+            r_dict["standard_rate"] = rate
+            r_dict["rate"] = rate
+            r_dict["opd_rate"] = float(r_dict.get("opd_rate") or rate)
+            r_dict["ipd_rate"] = float(r_dict.get("ipd_rate") or rate)
+
+            errs = invalid_map.get(idx, [])
+            warns = warn_map.get(idx, [])
+
+            if errs:
+                r_dict["validation_status"] = "INVALID"
+                r_dict["validation_errors"] = errs
+                r_dict["validation_warnings"] = warns
+            elif warns:
+                r_dict["validation_status"] = "WARNING"
+                r_dict["validation_errors"] = []
+                r_dict["validation_warnings"] = warns
+            else:
+                r_dict["validation_status"] = "VALID"
+                r_dict["validation_errors"] = []
+                r_dict["validation_warnings"] = []
+
+            enriched_records.append(r_dict)
+
+        enriched_valid = [r for r in enriched_records if r.get("validation_status") in ("VALID", "WARNING")]
+        enriched_invalid = [r for r in enriched_records if r.get("validation_status") == "INVALID"]
+        enriched_warnings = [r for r in enriched_records if r.get("validation_status") == "WARNING"]
+
+        summary = {
+            "total_extracted": total_count,
+            "valid_records": len(enriched_valid),
+            "invalid_records": len(enriched_invalid),
+            "warning_records": len(enriched_warnings)
+        }
+
         # Step 5: Format Canonical JSON Response
         standard_json = {
             "metadata": {
                 "source_file": filename,
                 "document_type": "Excel" if ext in [".xlsx", ".xls", ".xlsm"] else "PDF",
                 "template_name": template_name or "Auto-Detect",
-                "total_extracted": len(raw_records),
-                "valid_count": validation_report.get("valid_count", 0),
-                "invalid_count": validation_report.get("invalid_count", 0)
+                "total_extracted": total_count,
+                "valid_count": len(enriched_valid),
+                "invalid_count": len(enriched_invalid)
             },
-            "soc_records": validation_report.get("valid_records", [])
+            "summary": summary,
+            "soc_records": enriched_valid
         }
 
-        valid_records = validation_report.get("valid_records", [])
-        invalid_count = validation_report.get("invalid_count", 0)
-        valid_count = validation_report.get("valid_count", 0)
-
-        status = "success" if valid_count > 0 and invalid_count == 0 else ("warning" if valid_count > 0 else "error")
+        status = "success" if (len(enriched_valid) > 0 or total_count > 0) else "error"
 
         return {
             "status": status,
-            "message": f"Extracted {len(raw_records)} records ({valid_count} valid, {invalid_count} invalid).",
+            "message": f"Extracted {total_count} records ({len(enriched_valid)} valid, {len(enriched_invalid)} invalid).",
             "metadata": parse_result.get("metadata", {}),
             "headers": parse_result.get("headers", []),
+            "raw_headers": parse_result.get("headers", []),
+            "mapping": custom_mapping or parse_result.get("column_mapping", {}),
             "column_mapping": custom_mapping or parse_result.get("column_mapping", {}),
+            "available_sheets": parse_result.get("metadata", {}).get("available_sheets", []),
+            "active_sheet": parse_result.get("metadata", {}).get("sheet_name", ""),
             "validation": validation_report,
+            "summary": summary,
             "standard_json": standard_json,
-            "records": valid_records if valid_count > 0 else raw_records,
-            "preview_records": raw_records[:100] # First 100 for UI table preview
+            "records": enriched_records,
+            "valid_records": enriched_valid,
+            "invalid_records": enriched_invalid,
+            "warning_records": enriched_warnings,
+            "preview_records": enriched_records[:100] # First 100 for UI table preview
         }
 
     def commit_to_tariff_module(
