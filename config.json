@@ -1,0 +1,5 @@
+{
+  "storage_backend": "sqlite",
+  "db_path": "revenue_audit.db",
+  "port": 8000
+}

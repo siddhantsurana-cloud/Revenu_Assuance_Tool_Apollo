@@ -1,0 +1,114 @@
+[
+  {
+    "username": "Review",
+    "password": "Apollo@123",
+    "role": "Viewer",
+    "unit": "excelcare",
+    "email": "review.excelcare@apollo.com"
+  },
+  {
+    "username": "BRC",
+    "password": "Brc@2013",
+    "role": "Auditor",
+    "unit": "excelcare",
+    "email": "brc.excelcare@apollo.com"
+  },
+  {
+    "username": "BRC1",
+    "password": "Brc@2026",
+    "role": "Approver",
+    "unit": "excelcare",
+    "email": "brc1.excelcare@apollo.com"
+  },
+  {
+    "username": "admin",
+    "password": "Admin@Excel",
+    "role": "Administrator",
+    "unit": "excelcare",
+    "email": "admin.excelcare@apollo.com"
+  },
+  {
+    "username": "Review",
+    "password": "Apollo@123",
+    "role": "Viewer",
+    "unit": "international",
+    "email": "review.intl@apollo.com"
+  },
+  {
+    "username": "BRC",
+    "password": "Brc@2013",
+    "role": "Auditor",
+    "unit": "international",
+    "email": "brc.intl@apollo.com"
+  },
+  {
+    "username": "BRC1",
+    "password": "Brc@2026",
+    "role": "Approver",
+    "unit": "international",
+    "email": "brc1.intl@apollo.com"
+  },
+  {
+    "username": "admin",
+    "password": "Admin@Intl",
+    "role": "Administrator",
+    "unit": "international",
+    "email": "admin.intl@apollo.com"
+  },
+  {
+    "username": "Review",
+    "password": "Apollo@123",
+    "role": "Viewer",
+    "unit": "kolkata",
+    "email": "review.kol@apollo.com"
+  },
+  {
+    "username": "BRC",
+    "password": "Brc@2013",
+    "role": "Auditor",
+    "unit": "kolkata",
+    "email": "brc.kol@apollo.com"
+  },
+  {
+    "username": "BRC1",
+    "password": "Brc@2026",
+    "role": "Approver",
+    "unit": "kolkata",
+    "email": "brc1.kol@apollo.com"
+  },
+  {
+    "username": "admin",
+    "password": "Admin@Kolkata",
+    "role": "Administrator",
+    "unit": "kolkata",
+    "email": "admin.kol@apollo.com"
+  },
+  {
+    "username": "kol_viewer",
+    "password": "Viewer@Kolkata",
+    "role": "Viewer",
+    "unit": "kolkata",
+    "email": "kol_viewer@apollo.com"
+  },
+  {
+    "username": "kol_auditor",
+    "password": "Auditor@Kolkata",
+    "role": "Auditor",
+    "unit": "kolkata",
+    "email": "kol_auditor@apollo.com"
+  },
+  {
+    "username": "kol_reviewer",
+    "password": "Reviewer@Kolkata",
+    "role": "Approver",
+    "unit": "kolkata",
+    "email": "kol_reviewer@apollo.com"
+  },
+  {
+    "username": "kol_admin",
+    "password": "Admin@Kolkata",
+    "role": "Administrator",
+    "unit": "kolkata",
+    "email": "kol_admin@apollo.com"
+  }
+]
