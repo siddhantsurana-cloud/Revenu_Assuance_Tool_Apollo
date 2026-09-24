@@ -14693,10 +14693,12 @@ Claims & Billing Assurance Desk
         const filterErrBtn = document.getElementById('soc-filter-errors');
         const previewSearchInput = document.getElementById('soc-preview-search');
         const commitBtn = document.getElementById('ingest-btn-commit-db');
+        const exportExcelBtn = document.getElementById('ingest-btn-export-excel');
         const downloadBtn = document.getElementById('ingest-btn-download');
         const copyBtn = document.getElementById('ingest-btn-copy');
         const resetBtn = document.getElementById('btn-soc-reset');
         const viewLogsBtn = document.getElementById('btn-soc-view-logs');
+        const downloadTemplateBtn = document.getElementById('btn-soc-download-template');
 
         // 1. Browse Button & Dropzone Triggers
         if (browseBtn && fileInput) {
@@ -14816,6 +14818,20 @@ Claims & Billing Assurance Desk
         if (commitBtn) {
             commitBtn.addEventListener('click', () => {
                 commitSOCToTariffModule();
+            });
+        }
+
+        // 8b. Export Extracted Data to Excel Button
+        if (exportExcelBtn) {
+            exportExcelBtn.addEventListener('click', () => {
+                exportExtractedSOCToExcel();
+            });
+        }
+
+        // 8c. Download Standard SOC Template Button
+        if (downloadTemplateBtn) {
+            downloadTemplateBtn.addEventListener('click', () => {
+                downloadStandardSOCTemplate();
             });
         }
 
@@ -14966,7 +14982,7 @@ Claims & Billing Assurance Desk
         });
     }
 
-    async function runClientSideSOCParser(file, arrayBuffer, requestedSheet, templateName) {
+    async function runClientSideSOCParser(file, arrayBuffer, requestedSheet, templateName, customMapping = null) {
         const ext = '.' + file.name.split('.').pop().toLowerCase();
         const currency = document.getElementById('soc-currency-select')?.value || 'INR';
         const unit = document.getElementById('soc-unit-select')?.value || 'Per Quantity';
@@ -14975,11 +14991,11 @@ Claims & Billing Assurance Desk
         if (ext === '.pdf') {
             return await runClientSidePDFParser(file, arrayBuffer, currency, unit, targetName);
         } else {
-            return runClientSideExcelParser(file, arrayBuffer, requestedSheet, templateName, currency, unit, targetName);
+            return runClientSideExcelParser(file, arrayBuffer, requestedSheet, templateName, currency, unit, targetName, customMapping);
         }
     }
 
-    function runClientSideExcelParser(file, arrayBuffer, requestedSheet, templateName, currency, unit, targetName) {
+    function runClientSideExcelParser(file, arrayBuffer, requestedSheet, templateName, currency, unit, targetName, customMapping = null) {
         if (typeof XLSX === 'undefined') {
             return { status: 'error', message: 'SheetJS (XLSX) library is loading. Please retry.' };
         }
@@ -15024,8 +15040,10 @@ Claims & Billing Assurance Desk
 
         const dataRows = rawRows.slice(bestHeaderIdx + 1);
 
-        // Map columns using header names and sample row analysis
-        const mapping = resolveColumnMapping(headerRow, templateName, dataRows);
+        // Map columns using user-supplied custom mapping OR header names and sample row analysis
+        const mapping = (customMapping && typeof customMapping === 'object' && Object.keys(customMapping).length > 0)
+            ? { ...customMapping }
+            : resolveColumnMapping(headerRow, templateName, dataRows);
         socActiveMappings = mapping;
         const validRecords = [];
         const invalidRecords = [];
@@ -15036,13 +15054,13 @@ Claims & Billing Assurance Desk
             const hasContent = row.some(cell => String(cell || '').trim().length > 0);
             if (!hasContent) return;
 
-            const id = cleanString(row[mapping.id]);
-            const name = cleanString(row[mapping.name]);
-            const dept = cleanString(row[mapping.department]) || 'GENERAL';
-            const cat = cleanString(row[mapping.category]) || 'HOSPITAL_SERVICES';
-            const stdRate = parseNumericRate(row[mapping.standard_rate]);
-            const opdRate = parseNumericRate(row[mapping.opd_rate]) || stdRate;
-            const ipdRate = parseNumericRate(row[mapping.ipd_rate]) || stdRate;
+            const id = (mapping.id !== undefined && mapping.id >= 0) ? cleanString(row[mapping.id]) : '';
+            const name = (mapping.name !== undefined && mapping.name >= 0) ? cleanString(row[mapping.name]) : '';
+            const dept = (mapping.department !== undefined && mapping.department >= 0 ? cleanString(row[mapping.department]) : '') || 'GENERAL';
+            const cat = (mapping.category !== undefined && mapping.category >= 0 ? cleanString(row[mapping.category]) : '') || 'HOSPITAL_SERVICES';
+            const stdRate = (mapping.standard_rate !== undefined && mapping.standard_rate >= 0) ? parseNumericRate(row[mapping.standard_rate]) : null;
+            const opdRate = (mapping.opd_rate !== undefined && mapping.opd_rate >= 0) ? parseNumericRate(row[mapping.opd_rate]) : stdRate;
+            const ipdRate = (mapping.ipd_rate !== undefined && mapping.ipd_rate >= 0) ? parseNumericRate(row[mapping.ipd_rate]) : stdRate;
 
             const errors = [];
             const warnings = [];
@@ -15291,7 +15309,12 @@ Claims & Billing Assurance Desk
 
         const lowerHeaders = headers.map(h => String(h || '').toLowerCase().trim());
 
-        const rateExclusions = ['diff', 'variance', 'discount', 'disc', 'delta', 'change', 'margin', '%', 'gst', 'tax', 'sno', 'sl_no', 'sl no', 'sr no', 'sr.', 'unit', 'qty', 'quantity', 'status'];
+        const rateExclusions = [
+            'diff', 'variance', 'discount', 'disc', 'delta', 'change', 'margin', '%', 'gst', 'tax', 
+            'sno', 'sl_no', 'sl no', 'sr no', 'sr.', 'unit', 'qty', 'quantity', 'status',
+            'schedule', 'sched', 'slab', 'tier', 'grade', 'pct', 'percent', 'percentage',
+            'cgst', 'sgst', 'igst', 'cess', 'ratio', 'factor', 'hsn', 'sac'
+        ];
 
         const primaryIdAliases = [
             'service_code', 'service code', 'service_id', 'service id', 'item_code', 'item code', 
@@ -15323,10 +15346,10 @@ Claims & Billing Assurance Desk
             const h = lowerHeaders[colIdx];
             let score = 0;
 
-            // Penalty for negative indicators in header
+            // Heavy penalty for negative indicators in header (tax, gst, schedule, slab, percentage)
             for (const ex of rateExclusions) {
                 if (h.includes(ex)) {
-                    score -= 80;
+                    score -= 100;
                 }
             }
 
@@ -15342,15 +15365,21 @@ Claims & Billing Assurance Desk
                 let positiveCount = 0;
                 let negativeCount = 0;
                 let zeroCount = 0;
+                let sumPositive = 0;
                 let sampleSize = Math.min(sampleRows.length, 50);
 
                 for (let r = 0; r < sampleSize; r++) {
                     const cell = sampleRows[r]?.[colIdx];
                     const num = parseNumericRate(cell);
                     if (num !== null) {
-                        if (num > 0) positiveCount++;
-                        else if (num < 0) negativeCount++;
-                        else zeroCount++;
+                        if (num > 0) {
+                            positiveCount++;
+                            sumPositive += num;
+                        } else if (num < 0) {
+                            negativeCount++;
+                        } else {
+                            zeroCount++;
+                        }
                     }
                 }
 
@@ -15360,6 +15389,16 @@ Claims & Billing Assurance Desk
                 score += (positiveCount * 5);
                 // Excessive zeros penalized
                 if (positiveCount === 0 && zeroCount > 5) score -= 50;
+
+                // Value magnitude check: Tax rates / GST percentages / schedule numbers (e.g. 5, 6, 12, 18, 28) vs clinical procedure charges (typically ₹100 to ₹100,000+)
+                const avgPositive = positiveCount > 0 ? (sumPositive / positiveCount) : 0;
+                if (avgPositive > 0 && avgPositive <= 28) {
+                    // Penalty for low constant values or tax percentages masquerading as rates
+                    score -= 120;
+                } else if (avgPositive >= 50 && avgPositive <= 250000) {
+                    // Reward realistic hospital procedure tariff magnitudes
+                    score += 45;
+                }
             }
 
             return score;
@@ -15573,11 +15612,19 @@ Claims & Billing Assurance Desk
         // 5. Render Preview Table
         renderSOCPreviewTable();
 
-        // 6. Populate JSON Preview
+        // 6. Populate JSON Preview (first 25 records preview to prevent UI freeze on large datasets)
         const jsonPreview = document.getElementById('ingest-json-preview');
         if (jsonPreview) {
-            const jsonPayload = result.standard_json || result;
-            jsonPreview.value = JSON.stringify(jsonPayload, null, 2);
+            const rawPayload = result.standard_json || result;
+            const previewObj = {
+                metadata: rawPayload.metadata,
+                summary: rawPayload.summary,
+                mapping: rawPayload.mapping,
+                records_preview_first_25: (rawPayload.records || []).slice(0, 25),
+                total_records_count: (rawPayload.records || []).length,
+                export_instructions: "Full dataset of " + ((rawPayload.records || []).length) + " items ready for instant download via [Download JSON] or [Export Extracted Data (.xlsx)]."
+            };
+            jsonPreview.value = JSON.stringify(previewObj, null, 2);
         }
     }
 
@@ -15659,7 +15706,7 @@ Claims & Billing Assurance Desk
             const targetName = document.getElementById('soc-target-name-input')?.value || socActiveFile.name.replace(/\.[^/.]+$/, "");
             const sheetSelect = document.getElementById('ingest-sheet-select');
 
-            const reprocessed = runClientSideExcelParser(socActiveFile, socRawDataArrayBuffer, sheetSelect?.value, templateName, currency, unit, targetName);
+            const reprocessed = runClientSideExcelParser(socActiveFile, socRawDataArrayBuffer, sheetSelect?.value, templateName, currency, unit, targetName, newMapping);
             reprocessed.mapping = newMapping;
             socParsedResult = reprocessed;
             displaySOCResults(reprocessed);
@@ -15828,6 +15875,109 @@ Claims & Billing Assurance Desk
             showToast('Unable to copy JSON automatically.', 'warning');
         });
     }
+
+    function downloadStandardSOCTemplate() {
+        if (typeof XLSX === 'undefined') {
+            showToast('Excel library (SheetJS) is loading. Please retry.', 'warning');
+            return;
+        }
+
+        const templateHeaders = [
+            'SERVICE_CODE',
+            'SERVICE_NAME',
+            'DEPARTMENT',
+            'CATEGORY',
+            'STANDARD_RATE',
+            'OPD_RATE',
+            'IPD_RATE',
+            'REMARKS'
+        ];
+
+        const sampleRows = [
+            ['CONS001', 'OPD General Consultation', 'CONSULTATION', 'OPD', 500.0, 500.0, 500.0, 'Standard initial visit'],
+            ['CONS002', 'Specialist Consultation', 'CONSULTATION', 'OPD', 800.0, 800.0, 800.0, 'Specialist / Senior Consultant'],
+            ['LAB1001', 'Complete Blood Count (CBC)', 'PATHOLOGY', 'LABORATORY', 350.0, 350.0, 350.0, 'Routine hematology'],
+            ['LAB1002', 'Liver Function Test (LFT)', 'BIOCHEMISTRY', 'LABORATORY', 750.0, 750.0, 750.0, 'Full panel'],
+            ['RAD2001', 'Chest X-Ray PA View', 'RADIOLOGY', 'IMAGING', 450.0, 450.0, 450.0, 'Digital X-Ray'],
+            ['RAD2005', 'USG Whole Abdomen', 'RADIOLOGY', 'IMAGING', 1200.0, 1200.0, 1200.0, 'Color Doppler Ultrasound'],
+            ['SUR3001', 'Laparoscopic Appendectomy', 'SURGERY', 'IPD_PROCEDURE', 35000.0, 35000.0, 35000.0, 'Surgeon and OT charges'],
+            ['ICU4001', 'ICU Bed Charges Per Day', 'INTENSIVE CARE', 'ROOM_RENT', 5500.0, 5500.0, 5500.0, 'Critical care monitoring'],
+            ['BED001', 'Standard Private Room', 'WARD', 'ROOM_RENT', 2800.0, 2800.0, 2800.0, 'Single occupancy room']
+        ];
+
+        const wsData = [templateHeaders, ...sampleRows];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+        ws['!cols'] = [
+            { wch: 16 },
+            { wch: 32 },
+            { wch: 20 },
+            { wch: 18 },
+            { wch: 16 },
+            { wch: 14 },
+            { wch: 14 },
+            { wch: 30 }
+        ];
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Standard_SOC_Template');
+
+        const filename = 'Apollo_Standard_SOC_Ingestion_Template.xlsx';
+        XLSX.writeFile(wb, filename);
+        showToast(`Standard SOC Template downloaded: ${filename}`, 'success');
+    }
+
+    function exportExtractedSOCToExcel() {
+        if (!socParsedResult || !socParsedResult.records || socParsedResult.records.length === 0) {
+            showToast('No extracted records available to export. Please parse an SOC file first.', 'warning');
+            return;
+        }
+        if (typeof XLSX === 'undefined') {
+            showToast('Excel library (SheetJS) is loading. Please retry.', 'warning');
+            return;
+        }
+
+        const records = socParsedResult.records;
+        const exportRows = records.map((rec, idx) => ({
+            'Sl No': idx + 1,
+            'Item Code': rec.id || '',
+            'Service Description': rec.name || '',
+            'Department': rec.department || '',
+            'Category': rec.category || '',
+            'Standard Rate (₹)': rec.standard_rate !== null && rec.standard_rate !== undefined ? rec.standard_rate : 0.0,
+            'OPD Rate (₹)': rec.opd_rate !== null && rec.opd_rate !== undefined ? rec.opd_rate : 0.0,
+            'IPD Rate (₹)': rec.ipd_rate !== null && rec.ipd_rate !== undefined ? rec.ipd_rate : 0.0,
+            'Validation Status': rec.validation_status || 'VALID',
+            'Source Row': rec.source_row || (idx + 1),
+            'Validation Issues': (rec.validation_errors || []).concat(rec.validation_warnings || []).join('; ')
+        }));
+
+        const ws = XLSX.utils.json_to_sheet(exportRows);
+        ws['!cols'] = [
+            { wch: 8 },
+            { wch: 18 },
+            { wch: 40 },
+            { wch: 22 },
+            { wch: 20 },
+            { wch: 18 },
+            { wch: 16 },
+            { wch: 16 },
+            { wch: 16 },
+            { wch: 12 },
+            { wch: 35 }
+        ];
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Extracted_SOC_Data');
+
+        const baseName = (socActiveFile ? socActiveFile.name.replace(/\.[^/.]+$/, "") : 'SOC_Extracted_Data');
+        const filename = `${baseName}_Extracted_Master.xlsx`;
+        XLSX.writeFile(wb, filename);
+        showToast(`Extracted SOC data exported: ${filename} (${records.length} items)`, 'success');
+    }
+
+    window.downloadStandardSOCTemplate = downloadStandardSOCTemplate;
+    window.exportExtractedSOCToExcel = exportExtractedSOCToExcel;
 
     function resetSOCIngester() {
         socActiveFile = null;
