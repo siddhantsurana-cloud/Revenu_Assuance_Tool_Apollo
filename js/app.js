@@ -11981,6 +11981,10 @@
             submitBtn.style.cursor = 'pointer';
         }
         
+        // Ensure standard login credentials form is visible by default
+        if (otpVerificationGroup) otpVerificationGroup.style.display = 'none';
+        if (loginCredentialsGroup) loginCredentialsGroup.style.display = 'block';
+        
         if (loginUnit && loginRole) {
             loginUnit.addEventListener('change', () => {
                 if (loginUnit.value === 'all') {
